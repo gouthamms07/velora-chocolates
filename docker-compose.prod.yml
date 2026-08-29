@@ -1,0 +1,25 @@
+services:
+  api:
+    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-backend:latest
+    container_name: velora-api
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      CLIENT_ORIGIN: http://13.126.236.19
+      DATABASE_FILE: /app/data/velora.db
+    expose:
+      - "4000"
+    volumes:
+      - velora_data:/app/data
+
+  frontend:
+    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-frontend:latest
+    container_name: velora-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  velora_data:

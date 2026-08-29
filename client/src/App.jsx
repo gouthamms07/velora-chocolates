@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, ShoppingBag, Heart, Menu, Search, Sparkles, X } from 'lucide-react';
 
-const api = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const api = '/api';
 
 const collections = [
   { key: 'classic', title: 'Classic collection', copy: 'Timeless flavours, crafted for every moment.', tone: 'cream' },

@@ -38,7 +38,7 @@ resource "aws_iam_role" "github_actions" {
           }
 
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:gouthamms07/velora-chocolates:ref:refs/heads/main"
+            "token.actions.githubusercontent.com:sub" = "repo:gouthamms07@162958376/velora-chocolates@1350793100:ref:refs/heads/main"
           }
         }
       }

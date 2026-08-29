@@ -30,6 +30,7 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.ec2.id]
   associate_public_ip_address = true
   key_name                    = "velora-chocolates-key"
+  iam_instance_profile        = aws_iam_instance_profile.ec2.name
 
   root_block_device {
     volume_size = 20

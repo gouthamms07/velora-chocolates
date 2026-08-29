@@ -37,3 +37,13 @@ output "instance_public_dns" {
   description = "Public DNS of the Velora application EC2 instance"
   value       = aws_instance.app.public_dns
 }
+
+output "frontend_ecr_repository_url" {
+  description = "ECR repository URL for the Velora frontend"
+  value       = aws_ecr_repository.frontend.repository_url
+}
+
+output "backend_ecr_repository_url" {
+  description = "ECR repository URL for the Velora backend"
+  value       = aws_ecr_repository.backend.repository_url
+}

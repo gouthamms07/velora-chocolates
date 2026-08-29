@@ -1,0 +1,58 @@
+name: Velora Chocolates CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 188244334939.dkr.ecr.ap-south-1.amazonaws.com
+  BACKEND_REPOSITORY: velora-chocolates-backend
+  FRONTEND_REPOSITORY: velora-chocolates-frontend
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::188244334939:role/velora-chocolates-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build backend image
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$BACKEND_REPOSITORY:${GITHUB_SHA} \
+            -t $ECR_REGISTRY/$BACKEND_REPOSITORY:latest \
+            ./server
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA} \
+            -t $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest \
+            ./client
+
+      - name: Push backend image
+        run: |
+          docker push $ECR_REGISTRY/$BACKEND_REPOSITORY:${GITHUB_SHA}
+          docker push $ECR_REGISTRY/$BACKEND_REPOSITORY:latest
+
+      - name: Push frontend image
+        run: |
+          docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}
+          docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest

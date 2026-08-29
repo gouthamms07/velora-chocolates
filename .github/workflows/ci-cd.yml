@@ -23,6 +23,7 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+
       - name: Debug GitHub context
         run: |
           echo "Repository: $GITHUB_REPOSITORY"
@@ -32,6 +33,7 @@ jobs:
           echo "Actor: $GITHUB_ACTOR"
           echo "Workflow: $GITHUB_WORKFLOW"
           echo "Run ID: $GITHUB_RUN_ID"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -64,3 +66,30 @@ jobs:
         run: |
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest
+
+      - name: Deploy to EC2 via SSM
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --region $AWS_REGION \
+            --instance-ids i-02cc7fc30412b007e \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "cd /root/velora-chocolates",
+              "docker compose pull",
+              "docker compose up -d",
+              "docker image prune -f"
+            ]' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --region $AWS_REGION \
+            --command-id "$COMMAND_ID" \
+            --instance-id i-02cc7fc30412b007e
+
+          aws ssm get-command-invocation \
+            --region $AWS_REGION \
+            --command-id "$COMMAND_ID" \
+            --instance-id i-02cc7fc30412b007e

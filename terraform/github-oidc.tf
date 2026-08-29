@@ -105,7 +105,7 @@ resource "aws_iam_role_policy" "github_actions_ssm" {
         ]
 
         Resource = [
-          "arn:aws:ssm:${var.aws_region}:188244334939:document/AWS-RunShellScript",
+          "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
           "arn:aws:ec2:${var.aws_region}:188244334939:instance/${aws_instance.app.id}"
         ]
       },

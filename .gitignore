@@ -4,3 +4,11 @@ dist/
 .env
 .DS_Store
 *.log
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/tfplan
+terraform/*.tfplan
+terraform/crash.log

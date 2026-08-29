@@ -69,16 +69,20 @@ jobs:
 
       - name: Deploy to EC2 via SSM
         run: |
+          COMPOSE_FILE=$(base64 -w 0 docker-compose.prod.yml)
+
           COMMAND_ID=$(aws ssm send-command \
             --region $AWS_REGION \
             --instance-ids i-02cc7fc30412b007e \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "cd /root/velora-chocolates",
-              "docker compose pull",
-              "docker compose up -d",
-              "docker image prune -f"
-            ]' \
+            --parameters "commands=[
+              \"mkdir -p /root/velora-chocolates\",
+              \"echo $COMPOSE_FILE | base64 -d > /root/velora-chocolates/docker-compose.prod.yml\",
+              \"cd /root/velora-chocolates\",
+              \"docker compose -f docker-compose.prod.yml pull\",
+              \"docker compose -f docker-compose.prod.yml up -d\",
+              \"docker image prune -f\"
+            ]" \
             --query "Command.CommandId" \
             --output text)
 

@@ -24,21 +24,15 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Debug GitHub context
-        run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Ref: $GITHUB_REF"
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Event: $GITHUB_EVENT_NAME"
-          echo "Actor: $GITHUB_ACTOR"
-          echo "Workflow: $GITHUB_WORKFLOW"
-          echo "Run ID: $GITHUB_RUN_ID"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::188244334939:role/velora-chocolates-github-actions-role
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -67,20 +61,28 @@ jobs:
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest
 
+      - name: Validate production Compose file
+        run: |
+          docker compose -f docker-compose.prod.yml config
+
       - name: Deploy to EC2 via SSM
         run: |
           COMPOSE_FILE=$(base64 -w 0 docker-compose.prod.yml)
 
           COMMAND_ID=$(aws ssm send-command \
-            --region $AWS_REGION \
-            --instance-ids i-02cc7fc30412b007e \
+            --region "$AWS_REGION" \
+            --instance-ids "i-02cc7fc30412b007e" \
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
+              \"set -e\",
               \"mkdir -p /root/velora-chocolates\",
               \"echo $COMPOSE_FILE | base64 -d > /root/velora-chocolates/docker-compose.prod.yml\",
               \"cd /root/velora-chocolates\",
+              \"aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 188244334939.dkr.ecr.ap-south-1.amazonaws.com\",
               \"docker compose -f docker-compose.prod.yml pull\",
               \"docker compose -f docker-compose.prod.yml up -d\",
+              \"sleep 15\",
+              \"docker compose -f docker-compose.prod.yml ps\",
               \"docker image prune -f\"
             ]" \
             --query "Command.CommandId" \
@@ -89,11 +91,18 @@ jobs:
           echo "SSM Command ID: $COMMAND_ID"
 
           aws ssm wait command-executed \
-            --region $AWS_REGION \
+            --region "$AWS_REGION" \
             --command-id "$COMMAND_ID" \
-            --instance-id i-02cc7fc30412b007e
+            --instance-id "i-02cc7fc30412b007e"
+
+          echo "===== EC2 DEPLOYMENT OUTPUT ====="
 
           aws ssm get-command-invocation \
-            --region $AWS_REGION \
+            --region "$AWS_REGION" \
             --command-id "$COMMAND_ID" \
-            --instance-id i-02cc7fc30412b007e
+            --instance-id "i-02cc7fc30412b007e"
+
+      - name: Deployment completed
+        run: |
+          echo "Velora Chocolates deployment completed successfully."
+          echo "Commit: $GITHUB_SHA"

@@ -1,6 +1,6 @@
 services:
   api:
-    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-backend:latest
+    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-backend:${IMAGE_TAG:-latest}
     container_name: velora-api
     restart: unless-stopped
     environment:
@@ -19,7 +19,7 @@ services:
       start_period: 10s
 
   frontend:
-    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-frontend:latest
+    image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-frontend:${IMAGE_TAG:-latest}
     container_name: velora-frontend
     restart: unless-stopped
     ports:

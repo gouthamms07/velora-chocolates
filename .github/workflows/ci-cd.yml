@@ -18,26 +18,42 @@ env:
 
 jobs:
   build-and-push:
-    name: Build and Push Docker Images
+    name: Build and Deploy Velora Chocolates
     runs-on: ubuntu-latest
 
     steps:
+
+      # --------------------------------------------------
+      # 1. Checkout source code
+      # --------------------------------------------------
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # --------------------------------------------------
+      # 2. Configure AWS credentials using OIDC
+      # --------------------------------------------------
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::188244334939:role/velora-chocolates-github-actions-role
           aws-region: ${{ env.AWS_REGION }}
 
+      # --------------------------------------------------
+      # 3. Verify AWS identity
+      # --------------------------------------------------
       - name: Verify AWS identity
         run: |
           aws sts get-caller-identity
 
+      # --------------------------------------------------
+      # 4. Login to Amazon ECR
+      # --------------------------------------------------
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # --------------------------------------------------
+      # 5. Build backend Docker image
+      # --------------------------------------------------
       - name: Build backend image
         run: |
           docker build \
@@ -45,6 +61,9 @@ jobs:
             -t $ECR_REGISTRY/$BACKEND_REPOSITORY:latest \
             ./server
 
+      # --------------------------------------------------
+      # 6. Build frontend Docker image
+      # --------------------------------------------------
       - name: Build frontend image
         run: |
           docker build \
@@ -52,23 +71,44 @@ jobs:
             -t $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest \
             ./client
 
+      # --------------------------------------------------
+      # 7. Push backend images to ECR
+      # --------------------------------------------------
       - name: Push backend image
         run: |
           docker push $ECR_REGISTRY/$BACKEND_REPOSITORY:${GITHUB_SHA}
           docker push $ECR_REGISTRY/$BACKEND_REPOSITORY:latest
 
+      # --------------------------------------------------
+      # 8. Push frontend images to ECR
+      # --------------------------------------------------
       - name: Push frontend image
         run: |
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}
           docker push $ECR_REGISTRY/$FRONTEND_REPOSITORY:latest
 
+      # --------------------------------------------------
+      # 9. Validate production Docker Compose
+      # --------------------------------------------------
       - name: Validate production Compose file
         run: |
           docker compose -f docker-compose.prod.yml config
 
-      - name: Deploy to EC2 via SSM
+      # --------------------------------------------------
+      # 10. Encode production Compose file
+      # --------------------------------------------------
+      - name: Prepare deployment files
         run: |
           COMPOSE_FILE=$(base64 -w 0 docker-compose.prod.yml)
+          echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
+
+      # --------------------------------------------------
+      # 11. Deploy to EC2 using AWS Systems Manager
+      # --------------------------------------------------
+      - name: Deploy to EC2 via SSM
+        run: |
+
+          echo "===== SENDING DEPLOYMENT COMMAND ====="
 
           COMMAND_ID=$(aws ssm send-command \
             --region "$AWS_REGION" \
@@ -76,29 +116,64 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters "commands=[
               \"set -e\",
+              \"echo '===== PREPARING DEPLOYMENT DIRECTORY ====='\",
               \"mkdir -p /root/velora-chocolates\",
               \"echo $COMPOSE_FILE | base64 -d > /root/velora-chocolates/docker-compose.prod.yml\",
               \"cd /root/velora-chocolates\",
+
+              \"echo '===== ECR LOGIN ====='\",
               \"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY\",
+
+              \"echo '===== PULLING BACKEND AND FRONTEND IMAGES ====='\",
               \"IMAGE_TAG=$GITHUB_SHA docker compose -f docker-compose.prod.yml pull\",
+
+              \"echo '===== STARTING CONTAINERS ====='\",
               \"IMAGE_TAG=$GITHUB_SHA docker compose -f docker-compose.prod.yml up -d\",
-              \"sleep 15\",
+
+              \"echo '===== WAITING FOR CONTAINERS ====='\",
+              \"sleep 20\",
+
+              \"echo '===== CONTAINER STATUS ====='\",
               \"docker compose -f docker-compose.prod.yml ps\",
-              \"test \\\"\\$(docker inspect -f '{{.State.Health.Status}}' velora-api)\\\" = healthy\",
-              \"test \\\"\\$(docker inspect -f '{{.State.Health.Status}}' velora-frontend)\\\" = healthy\",
+
+              \"echo '===== API HEALTH CHECK ====='\",
+              \"API_HEALTH=\\$(docker inspect -f '{{.State.Health.Status}}' velora-api)\",
+              \"echo API health: \\$API_HEALTH\",
+              \"test \\\"\\$API_HEALTH\\\" = healthy\",
+
+              \"echo '===== FRONTEND HEALTH CHECK ====='\",
+              \"FRONTEND_HEALTH=\\$(docker inspect -f '{{.State.Health.Status}}' velora-frontend)\",
+              \"echo Frontend health: \\$FRONTEND_HEALTH\",
+              \"test \\\"\\$FRONTEND_HEALTH\\\" = healthy\",
+
+              \"echo '===== WEBSITE HTTPS CHECK ====='\",
               \"curl -fsS https://velorachocolates.store/ > /dev/null\",
+              \"echo Website: OK\",
+
+              \"echo '===== API ENDPOINT CHECK ====='\",
               \"curl -fsS https://velorachocolates.store/api/products > /dev/null\",
-              \"docker image prune -f\"
+              \"echo API: OK\",
+
+              \"echo '===== CLEANING UNUSED DOCKER IMAGES ====='\",
+              \"docker image prune -f\",
+
+              \"echo '===== DEPLOYMENT SUCCESS ====='\"
             ]" \
             --query "Command.CommandId" \
             --output text)
 
           echo "SSM Command ID: $COMMAND_ID"
 
+          echo "===== WAITING FOR SSM COMMAND ====="
+
+          set +e
+
           aws ssm wait command-executed \
             --region "$AWS_REGION" \
             --command-id "$COMMAND_ID" \
             --instance-id "$EC2_INSTANCE_ID"
+
+          WAIT_STATUS=$?
 
           echo "===== EC2 DEPLOYMENT OUTPUT ====="
 
@@ -107,7 +182,23 @@ jobs:
             --command-id "$COMMAND_ID" \
             --instance-id "$EC2_INSTANCE_ID"
 
+          if [ "$WAIT_STATUS" -ne 0 ]; then
+            echo "========================================"
+            echo "EC2 DEPLOYMENT FAILED"
+            echo "========================================"
+            exit "$WAIT_STATUS"
+          fi
+
+      # --------------------------------------------------
+      # 12. Deployment completed
+      # --------------------------------------------------
       - name: Deployment completed
         run: |
-          echo "Velora Chocolates deployment completed successfully."
+          echo "========================================"
+          echo "Velora Chocolates deployment completed"
+          echo "========================================"
           echo "Commit: $GITHUB_SHA"
+          echo "Backend image:"
+          echo "$ECR_REGISTRY/$BACKEND_REPOSITORY:$GITHUB_SHA"
+          echo "Frontend image:"
+          echo "$ECR_REGISTRY/$FRONTEND_REPOSITORY:$GITHUB_SHA"

@@ -22,6 +22,8 @@ services:
     image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-frontend:${IMAGE_TAG:-latest}
     container_name: velora-frontend
     restart: unless-stopped
+    environment:
+      BACKEND_HOST: api:4000
     ports:
       - "127.0.0.1:8080:80"
     depends_on:

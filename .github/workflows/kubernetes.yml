@@ -2,14 +2,6 @@ name: Kubernetes CI/CD
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'client/**'
-      - 'server/**'
-      - 'k8s/**'
-      - '.github/workflows/kubernetes.yml'
 
 permissions:
   contents: read

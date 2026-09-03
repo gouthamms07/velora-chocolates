@@ -1,0 +1,28 @@
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
+    groff \
+    less \
+    awscli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install AWS Session Manager Plugin for ARM64
+RUN curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_arm64/session-manager-plugin.deb" \
+    -o session-manager-plugin.deb \
+    && dpkg -i session-manager-plugin.deb \
+    && rm session-manager-plugin.deb
+
+# Install Ansible and AWS Python dependencies
+RUN pip install --no-cache-dir \
+    ansible \
+    boto3 \
+    botocore
+
+# Install Amazon AWS Ansible collection
+RUN ansible-galaxy collection install amazon.aws
+
+WORKDIR /ansible
+
+CMD ["bash"]

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: velora-backend
+  namespace: velora
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: velora-backend
+  template:
+    metadata:
+      labels:
+        app: velora-backend
+    spec:
+      imagePullSecrets:
+        - name: ecr-registry-secret
+      containers:
+        - name: backend
+          image: 188244334939.dkr.ecr.ap-south-1.amazonaws.com/velora-chocolates-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+          env:
+            - name: PORT
+              value: "4000"
+            - name: CLIENT_ORIGIN
+              value: "https://velorachocolates.store"
+            - name: DATABASE_FILE
+              value: "/app/data/velora.db"
+          volumeMounts:
+            - name: velora-db
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: velora-db
+          persistentVolumeClaim:
+            claimName: velora-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: velora-backend
+  namespace: velora
+spec:
+  type: ClusterIP
+  selector:
+    app: velora-backend
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP

@@ -12,3 +12,9 @@ terraform/*.tfstate.*
 terraform/tfplan
 terraform/*.tfplan
 terraform/crash.log
+
+# Ansible local environment
+ansible/.venv312/
+ansible/.venv/
+ansible/.venv313/
+ansible/inventory.ini.bak

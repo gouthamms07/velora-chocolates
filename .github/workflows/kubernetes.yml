@@ -30,7 +30,8 @@ jobs:
 
           TOKEN=$(curl -sS \
             -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
+            | jq -r '.value')
 
           PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2 | tr '_-' '/+' | base64 -d 2>/dev/null || true)
 
@@ -85,12 +86,15 @@ jobs:
 
       - name: Validate Kubernetes manifests
         run: |
-          kubectl apply \
+          kubectl create \
             --dry-run=client \
             -f k8s/namespace.yaml \
             -f k8s/backend-storage.yaml \
             -f k8s/backend.yaml \
-            -f k8s/frontend.yaml
+            -f k8s/frontend.yaml \
+            -o yaml > /tmp/k8s-manifests.yaml
+
+          echo "Kubernetes manifests are valid."
 
       - name: Deploy to Kubernetes through AWS SSM
         env:
@@ -114,6 +118,7 @@ jobs:
           kubectl config current-context
 
           echo "=== Refresh ECR pull secret ==="
+
           kubectl -n "\$NAMESPACE" create secret docker-registry ecr-registry-secret \
             --docker-server="\$ECR_REGISTRY" \
             --docker-username=AWS \
@@ -122,26 +127,35 @@ jobs:
             -o yaml | kubectl apply -f -
 
           echo "=== Update backend ==="
-          kubectl -n "\$NAMESPACE" set image deployment/velora-backend \
+
+          kubectl -n "\$NAMESPACE" set image \
+            deployment/velora-backend \
             backend="\$ECR_REGISTRY/velora-chocolates-backend:\$IMAGE_TAG"
 
           echo "=== Update frontend ==="
-          kubectl -n "\$NAMESPACE" set image deployment/velora-frontend \
+
+          kubectl -n "\$NAMESPACE" set image \
+            deployment/velora-frontend \
             frontend="\$ECR_REGISTRY/velora-chocolates-frontend:\$IMAGE_TAG"
 
           echo "=== Wait for backend rollout ==="
+
           kubectl -n "\$NAMESPACE" rollout status \
             deployment/velora-backend \
             --timeout=180s
 
           echo "=== Wait for frontend rollout ==="
+
           kubectl -n "\$NAMESPACE" rollout status \
             deployment/velora-frontend \
             --timeout=180s
 
           echo "=== Final deployment status ==="
+
           kubectl -n "\$NAMESPACE" get deployments
+
           kubectl -n "\$NAMESPACE" get pods -o wide
+
           kubectl -n "\$NAMESPACE" get services
 
           echo "=== Deployment successful ==="
@@ -176,6 +190,7 @@ jobs:
               Success)
                 break
                 ;;
+
               Failed|Cancelled|TimedOut|Cancelling)
                 echo "Kubernetes deployment failed."
 
@@ -188,6 +203,7 @@ jobs:
 
                 exit 1
                 ;;
+
               *)
                 sleep 5
                 ;;

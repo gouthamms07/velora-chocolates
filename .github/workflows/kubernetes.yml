@@ -63,6 +63,8 @@ jobs:
 
       - name: Build and push backend image
         run: |
+          set -euo pipefail
+
           docker build \
             -t "$ECR_REGISTRY/$BACKEND_REPOSITORY:${GITHUB_SHA}" \
             ./server
@@ -72,6 +74,8 @@ jobs:
 
       - name: Build and push frontend image
         run: |
+          set -euo pipefail
+
           docker build \
             -t "$ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}" \
             ./client
@@ -79,27 +83,27 @@ jobs:
           docker push \
             "$ECR_REGISTRY/$FRONTEND_REPOSITORY:${GITHUB_SHA}"
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: latest
-
-      - name: Validate Kubernetes manifests
+      - name: Check Kubernetes manifest files
+        shell: bash
         run: |
-          kubectl create \
-            --dry-run=client \
-            -f k8s/namespace.yaml \
-            -f k8s/backend-storage.yaml \
-            -f k8s/backend.yaml \
-            -f k8s/frontend.yaml \
-            -o yaml > /tmp/k8s-manifests.yaml
+          set -euo pipefail
 
-          echo "Kubernetes manifests are valid."
+          echo "=== Checking Kubernetes manifest files ==="
+
+          test -f k8s/namespace.yaml
+          test -f k8s/backend-storage.yaml
+          test -f k8s/backend.yaml
+          test -f k8s/frontend.yaml
+
+          echo "All Kubernetes manifest files are present."
 
       - name: Deploy to Kubernetes through AWS SSM
         env:
           IMAGE_TAG: ${{ github.sha }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           cat > /tmp/deploy-k8s.sh <<SCRIPT
           #!/bin/bash
           set -euo pipefail
@@ -111,12 +115,30 @@ jobs:
           AWS_REGION="${AWS_REGION}"
           NAMESPACE="${K8S_NAMESPACE}"
 
-          echo "=== Kubernetes deployment ==="
-          echo "Image tag: \$IMAGE_TAG"
+          echo "========================================"
+          echo "Velora Chocolates Kubernetes Deployment"
+          echo "========================================"
 
+          echo "Image tag: \$IMAGE_TAG"
+          echo "Namespace: \$NAMESPACE"
+          echo "AWS Region: \$AWS_REGION"
+
+          echo ""
           echo "=== Kubernetes context ==="
+
           kubectl config current-context
 
+          echo ""
+          echo "=== Kubernetes cluster ==="
+
+          kubectl cluster-info
+
+          echo ""
+          echo "=== Checking namespace ==="
+
+          kubectl get namespace "\$NAMESPACE"
+
+          echo ""
           echo "=== Refresh ECR pull secret ==="
 
           kubectl -n "\$NAMESPACE" create secret docker-registry ecr-registry-secret \
@@ -126,42 +148,69 @@ jobs:
             --dry-run=client \
             -o yaml | kubectl apply -f -
 
-          echo "=== Update backend ==="
+          echo ""
+          echo "=== Update backend image ==="
 
           kubectl -n "\$NAMESPACE" set image \
             deployment/velora-backend \
             backend="\$ECR_REGISTRY/velora-chocolates-backend:\$IMAGE_TAG"
 
-          echo "=== Update frontend ==="
+          echo ""
+          echo "=== Update frontend image ==="
 
           kubectl -n "\$NAMESPACE" set image \
             deployment/velora-frontend \
             frontend="\$ECR_REGISTRY/velora-chocolates-frontend:\$IMAGE_TAG"
 
+          echo ""
           echo "=== Wait for backend rollout ==="
 
           kubectl -n "\$NAMESPACE" rollout status \
             deployment/velora-backend \
             --timeout=180s
 
+          echo ""
           echo "=== Wait for frontend rollout ==="
 
           kubectl -n "\$NAMESPACE" rollout status \
             deployment/velora-frontend \
             --timeout=180s
 
-          echo "=== Final deployment status ==="
+          echo ""
+          echo "=== Backend rollout history ==="
 
-          kubectl -n "\$NAMESPACE" get deployments
+          kubectl -n "\$NAMESPACE" rollout history deployment/velora-backend
+
+          echo ""
+          echo "=== Frontend rollout history ==="
+
+          kubectl -n "\$NAMESPACE" rollout history deployment/velora-frontend
+
+          echo ""
+          echo "=== Final deployments ==="
+
+          kubectl -n "\$NAMESPACE" get deployments -o wide
+
+          echo ""
+          echo "=== Final pods ==="
 
           kubectl -n "\$NAMESPACE" get pods -o wide
 
-          kubectl -n "\$NAMESPACE" get services
+          echo ""
+          echo "=== Final services ==="
 
-          echo "=== Deployment successful ==="
+          kubectl -n "\$NAMESPACE" get services -o wide
+
+          echo ""
+          echo "========================================"
+          echo "Kubernetes deployment successful"
+          echo "========================================"
+
           SCRIPT
 
           SCRIPT_B64=$(base64 -w 0 /tmp/deploy-k8s.sh)
+
+          echo "=== Sending deployment command through AWS SSM ==="
 
           COMMAND_ID=$(aws ssm send-command \
             --region "$AWS_REGION" \
@@ -174,9 +223,13 @@ jobs:
 
           echo "SSM Command ID: $COMMAND_ID"
 
+          echo ""
           echo "=== Waiting for SSM command ==="
 
+          FINAL_STATUS="Pending"
+
           for i in {1..60}; do
+
             STATUS=$(aws ssm get-command-invocation \
               --region "$AWS_REGION" \
               --command-id "$COMMAND_ID" \
@@ -187,52 +240,31 @@ jobs:
             echo "SSM status: $STATUS"
 
             case "$STATUS" in
+
               Success)
+                FINAL_STATUS="Success"
                 break
                 ;;
 
               Failed|Cancelled|TimedOut|Cancelling)
-                echo "Kubernetes deployment failed."
-
-                aws ssm get-command-invocation \
-                  --region "$AWS_REGION" \
-                  --command-id "$COMMAND_ID" \
-                  --instance-id "$EC2_INSTANCE_ID" \
-                  --query 'StandardErrorContent' \
-                  --output text
-
-                exit 1
+                FINAL_STATUS="$STATUS"
+                break
                 ;;
 
               *)
                 sleep 5
                 ;;
+
             esac
+
           done
 
-          FINAL_STATUS=$(aws ssm get-command-invocation \
-            --region "$AWS_REGION" \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --query 'Status' \
-            --output text)
+          echo ""
+          echo "=== Final SSM status ==="
+          echo "$FINAL_STATUS"
 
-          echo "Final SSM status: $FINAL_STATUS"
-
-          if [ "$FINAL_STATUS" != "Success" ]; then
-            echo "SSM command did not complete successfully."
-
-            aws ssm get-command-invocation \
-              --region "$AWS_REGION" \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$EC2_INSTANCE_ID" \
-              --query 'StandardErrorContent' \
-              --output text
-
-            exit 1
-          fi
-
-          echo "=== SSM deployment output ==="
+          echo ""
+          echo "=== SSM standard output ==="
 
           aws ssm get-command-invocation \
             --region "$AWS_REGION" \
@@ -240,3 +272,22 @@ jobs:
             --instance-id "$EC2_INSTANCE_ID" \
             --query 'StandardOutputContent' \
             --output text
+
+          echo ""
+          echo "=== SSM standard error ==="
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query 'StandardErrorContent' \
+            --output text
+
+          if [ "$FINAL_STATUS" != "Success" ]; then
+            echo ""
+            echo "Kubernetes deployment failed."
+            exit 1
+          fi
+
+          echo ""
+          echo "Kubernetes deployment completed successfully."

@@ -18,6 +18,8 @@
           - git
           - unzip
           - nginx
+          - certbot
+          - python3-certbot-nginx
         state: present
 
     - name: Install Docker and Docker Compose
@@ -127,6 +129,24 @@
         name: nginx
         enabled: true
         state: started
+
+    - name: Generate Let's Encrypt SSL certificate
+      command: >
+        certbot --nginx
+        --non-interactive
+        --agree-tos
+        --redirect
+        --email gouthamms956@outlook.com
+        -d velorachocolates.store
+      args:
+        creates: /etc/letsencrypt/live/velorachocolates.store/fullchain.pem
+
+    - name: Enable automatic SSL certificate renewal
+      systemd:
+        name: certbot.timer
+        enabled: true
+        state: started
+
 
   handlers:
     - name: Restart Nginx

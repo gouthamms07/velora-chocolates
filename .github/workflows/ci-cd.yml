@@ -102,7 +102,7 @@ jobs:
                   "echo \"===== PULLING IMAGES =====\"",
                   ("IMAGE_TAG=" + $image_tag + " docker compose -f docker-compose.prod.yml pull"),
                   "echo \"===== STARTING CONTAINERS =====\"",
-                  ("IMAGE_TAG=" + $image_tag + " docker compose -f docker-compose.prod.yml up -d"),
+                  ("UP_OK=0; for attempt in 1 2 3; do if IMAGE_TAG=" + $image_tag + " docker compose -f docker-compose.prod.yml up -d; then UP_OK=1; break; fi; echo Compose-startup-attempt-$attempt-failed-retrying; sleep 5; done; test $UP_OK -eq 1"),
                   "echo \"===== WAITING FOR CONTAINERS =====\"",
                   "sleep 20",
                   "echo \"===== CONTAINER STATUS =====\"",

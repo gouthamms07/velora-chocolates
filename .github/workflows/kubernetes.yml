@@ -13,7 +13,7 @@ env:
   BACKEND_REPOSITORY: velora-chocolates-backend
   FRONTEND_REPOSITORY: velora-chocolates-frontend
   K8S_NAMESPACE: velora
-  EC2_INSTANCE_ID: i-02cc7fc30412b007e
+  EC2_INSTANCE_ID: i-0736a10b78f3e178d
 
 jobs:
   build-push-deploy:
